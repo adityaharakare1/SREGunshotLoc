@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
+import scipy.stats as stats
 
 
 def Friedlander(t,tRise,tDecay,tTrough):
@@ -34,19 +35,14 @@ def NWave(t,tRise,tDecay):
 
 
 def categorize(data, Fs, DEBUG):
+
     dt = 1/Fs
-    _SW_Min_Neg_Peak = 0.5
+    _SW_Min_Neg_Peak = 0.1
     errors = np.zeros((4,2))
     for i in range(4):
         imax = np.argmax(data[i,:])  # Index of +ve peak of signal
-        # print(imax)
-        # Determine left and right end indices (relative to 'imax') to
-        # window data (already windowed) based on '_TBefr' & '_TAftr'
-        # ileft = max([imax - int(math.ceil(_TBefr/dt)),0])
         ileft = 0
-        # iright = min([imax + int(math.ceil(_TAftr/dt)),len(snsr.data)])
         iright = len(data[i,:])
-        # data = snsr.data[ileft:iright]  # Extract chosen window of data
         data[i,:] /= np.max(data[i,:])  # Normalize by max
         # Create time axis such that peak occurs at t=0
         tAxis = (np.arange(iright - ileft) - (imax - ileft)) * dt
@@ -56,7 +52,9 @@ def categorize(data, Fs, DEBUG):
         jmax = np.argmax(data[i,:])  # Index of +ve peak of 'data'
         # Guess time to first 0-crossing working backward from +ve peak,
         # which is the rise time of the signal
+        print(jmax)
         jzeroCrossMinus = np.argmax(data[i,:][jmax::-1] < 0)
+        print(jzeroCrossMinus)
         if jzeroCrossMinus == 0:  # No 0-crossing found in above
             t_Rise0 = -tAxis[0]  # Guess rise time is -ve of left time end
         else:
@@ -66,11 +64,12 @@ def categorize(data, Fs, DEBUG):
             # Guess the time to first 0-crossing after +ve peak, which
             # is the decay time of the signal
             jzeroCrossPlus = np.argmax(data[i,:][jmax:] < 0)
+            print(jzeroCrossPlus)
             if jzeroCrossPlus == 0:  # No 0-crossings found in above
                 MB_t_Decay0 = tAxis[-1]
             else:
                 MB_t_Decay0 = tAxis[jmax + jzeroCrossPlus]
-            # print(MB_t_Decay0)
+             # print(MB_t_Decay0)
             # Guess time from the +ve peak to the -ve peak of the signal
             jmin = np.argmin(data[i,:][jmax:])
             MB_t_Trough0 = tAxis[jmax + jmin]
@@ -89,13 +88,19 @@ def categorize(data, Fs, DEBUG):
                 # Visualize Curve Fitting
                 plt.plot(data[i,:])
                 plt.plot(FrFitData, '-')
+                plt.ylabel('A(n)')
+                plt.xlabel('n')
+                plt.legend(["Input Data", "Fitted Data"], loc="upper right")
                 plt.show()
             errors[i, 0] = np.average(np.square(data[i,:] - FrFitData))
-            # print(errors[i,0])
+
+
+            print('Fridlander Fitting Error: ', errors[i, 0])
         if np.min(data[i,:][jmax:]) < -_SW_Min_Neg_Peak:  # N-wave fit attempt?
             # (Normalized) -ve peak should be of sufficient magnitude to
             # warrant an attempt to fit an N-wave profile to the signal
             try:  # Fitting N-wave profile
+
                 # Guess the time from the +ve peak to the -ve peak
                 jmin = np.argmin(data[i,:])
                 SW_t_Decay0 = tAxis[jmin]
@@ -106,8 +111,20 @@ def categorize(data, Fs, DEBUG):
             else:
                 # Successful fitting: calculate mean square error of fit
                 NWFitData = NWave(tAxis, optN[0], optN[1])
-                errors[i, 1] = np.average(np.square(data[i,:] \
-                                                             - NWFitData))
+                errors[i, 1] = np.average(np.square(data[i,:] - NWFitData))
+
+                print('NWave Fitting Error: ', errors[i, 1])
+                if DEBUG:
+                    # Visualize Curve Fitting
+                    plt.plot(data[i, :])
+                    plt.plot(NWFitData, '-')
+                    plt.ylabel('A(n)')
+                    plt.xlabel('n')
+                    plt.legend(["Input Data", "Fitted Data"], loc="upper right")
+                    plt.show()
+
+
+
         else:
             fitErrN = True  # Didn't even attempt an N-wave fit; => error
             errors[i, 1] = float('inf')
@@ -116,7 +133,8 @@ def categorize(data, Fs, DEBUG):
     minF = np.min(errors[:, 0])  # min error in Friedlander fits
     minN = np.min(errors[:, 1])  # min error in N-wave fits
 
-    if minF != float('inf') or minN != float('inf'):  # At least one is finite
+    # if minF != float('inf') or minN != float('inf'):  # At least one is finite
+    if min(minF, minN) < 0.015:
         if minF < minN:  # Friedlander fit was best across all sensors
             category = 'MuzzleBlast'  # Assign category
         else:  # N-wave fit was best across all sensors
